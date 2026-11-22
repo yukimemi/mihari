@@ -19,7 +19,7 @@ jxl-oxide = { version = "0.12.6", features = ["image"] }
 natord = "1.0.9"
 renamore = "0.3.2"
 rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
 tempfile = "3.27"
 teravars = { version = "0.2.2", features = ["merge"] }
 toml = "1.1.8"

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Mihari: an open manga spread in a viewfinder</title>
+  <rect x="6" y="6" width="244" height="244" rx="52" fill="#102024" stroke="#436960" stroke-width="6"/>
+  <path d="M35 65V35h30m126 0h30v30M35 191v30h30m126 0h30v-30"
+        fill="none" stroke="#73BBA7" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M59 76c23-2 44 4 61 16v91c-17-12-38-18-61-16Z" fill="#62EDB8"/>
+  <path d="M197 76c-23-2-44 4-61 16v91c17-12 38-18 61-16Z" fill="#A8F8DC"/>
+</svg>

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="430" height="144" viewBox="0 0 430 144" role="img" aria-labelledby="title">
+  <title id="title">Mihari</title>
+  <defs>
+    <path id="wordmark" d="M159 102V63m0 15c0-9 6-15 14-15s14 6 14 15v24m0-24c0-9 6-15 14-15s14 6 14 15v24
+      M236 102V63
+      M258 102V40m0 39c0-10 6-16 15-16s15 6 15 16v23
+      M343 63v39m0-20c0 11-7 20-17 20s-17-9-17-20 7-19 17-19 17 8 17 19Z
+      M365 102V63m0 17c0-10 7-17 19-17h3
+      M409 102V63"/>
+  </defs>
+  <g transform="translate(8 8) scale(.5)">
+    <rect x="6" y="6" width="244" height="244" rx="52" fill="#102024" stroke="#436960" stroke-width="6"/>
+    <path d="M35 65V35h30m126 0h30v30M35 191v30h30m126 0h30v-30"
+          fill="none" stroke="#73BBA7" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M59 76c23-2 44 4 61 16v91c-17-12-38-18-61-16Z" fill="#62EDB8"/>
+    <path d="M197 76c-23-2-44 4-61 16v91c17-12 38-18 61-16Z" fill="#A8F8DC"/>
+  </g>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <use href="#wordmark" stroke="#102024" stroke-width="18"/>
+    <use href="#wordmark" stroke="#A8F8DC" stroke-width="12"/>
+  </g>
+  <g fill="#62EDB8" stroke="#102024" stroke-width="3">
+    <circle cx="236" cy="40" r="7"/>
+    <circle cx="409" cy="40" r="7"/>
+  </g>
+</svg>

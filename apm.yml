@@ -1,0 +1,21 @@
+# Required-by-APM but intentionally static. Projects using these
+# templates are not APM publishers; this apm.yml exists only to install
+# agent skills that contributors want available while working on
+# this repo — currently the `renri` worktree skill.
+name: mihari
+version: 0.0.0
+description: |
+  Dev-consumer APM config for the mihari repo. Pinned
+  to `#main` so `apm install --update` always pulls the latest
+  renri skill.
+author: yukimemi
+# Pin targets: pj-base renders both `.claude/` and `.gemini/`,
+# so APM's auto-detection sees multiple harnesses and aborts,
+# which makes Renovate's apm.lock.yaml artifact updates fail.
+targets: [claude, gemini]
+dependencies:
+  apm:
+    - yukimemi/renri#main
+  mcp: []
+includes: auto
+scripts: {}

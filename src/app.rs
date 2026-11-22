@@ -401,33 +401,41 @@ impl eframe::App for Viewer {
         painter.rect_filled(footer, 0., Color32::from_gray(29));
         let font = FontId::proportional(13.);
         let center_y = footer.center().y;
-        let status_clip = if self.notice.is_none() && !self.help && visible.len() == 2 {
+        let status = painter.layout_no_wrap(
+            self.notice.as_deref().unwrap_or(&self.status).to_owned(),
+            font.clone(),
+            TEXT,
+        );
+        let mut status_clip = footer;
+        if !self.help && visible.len() == 2 {
             let right = match self.direction {
                 Direction::Rtl => visible.start,
                 Direction::Ltr => visible.start + 1,
             };
-            let label = painter.text(
-                pos2(footer.right() - 9., center_y),
-                Align2::RIGHT_CENTER,
+            let selection = painter.layout_no_wrap(
                 if self.album.active() == right {
                     "Selected: right"
                 } else {
                     "Selected: left"
-                },
-                font.clone(),
+                }
+                .to_owned(),
+                font,
                 TEXT,
             );
-            Rect::from_min_max(footer.min, pos2(label.left() - 9., footer.bottom()))
-        } else {
-            footer
-        };
-        painter.with_clip_rect(status_clip).text(
-            pos2(footer.left() + 9., center_y),
-            Align2::LEFT_CENTER,
-            self.notice.as_deref().unwrap_or(&self.status),
-            font,
-            TEXT,
-        );
+            let label = Align2::RIGHT_CENTER
+                .anchor_size(pos2(footer.right() - 9., center_y), selection.size());
+            let status_right = label.left() - 9.;
+            if self.notice.is_none() || footer.left() + 9. + status.size().x <= status_right {
+                painter.galley(label.min, selection, TEXT);
+                status_clip.max.x = status_right;
+            }
+        }
+        let status_position = Align2::LEFT_CENTER
+            .anchor_size(pos2(footer.left() + 9., center_y), status.size())
+            .min;
+        painter
+            .with_clip_rect(status_clip)
+            .galley(status_position, status, TEXT);
     }
 }
 

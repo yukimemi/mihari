@@ -1,6 +1,7 @@
 use std::{
     io,
     ops::Range,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -35,6 +36,7 @@ pub(crate) struct Viewer {
     slideshow: Option<Slideshow>,
     g_pending: bool,
     help: bool,
+    next_archive: Option<PathBuf>,
     sort_help: String,
     notice: Option<String>,
     status: String,
@@ -59,6 +61,7 @@ impl Viewer {
             slideshow: None,
             g_pending: false,
             help: false,
+            next_archive: None,
             sort_help,
             notice: None,
             status: String::new(),
@@ -143,13 +146,59 @@ impl Viewer {
                 .pick_file()
         };
         if let Some(path) = path {
-            self.album = Album::open(&path, self.config.recurse)?;
-            self.loader.clear();
+            self.open_path(&path)?;
         }
         Ok(())
     }
 
-    fn key(&mut self, action: Action, ctx: &Context, frame: &eframe::Frame) -> bool {
+    fn open_path(&mut self, path: &Path) -> io::Result<()> {
+        self.album = Album::open(path, self.config.recurse)?;
+        self.loader.clear();
+        Ok(())
+    }
+
+    fn show_next_archive_prompt(&mut self, ctx: &Context) {
+        let Some(path) = &self.next_archive else {
+            return;
+        };
+        let name = path.file_name().unwrap_or(path.as_os_str());
+        let modal = egui::Modal::new(egui::Id::new("next_archive")).show(ctx, |ui| {
+            ui.set_max_width(320.);
+            ui.heading("End of archive");
+            ui.label("Open the next file?");
+            ui.label(name.to_string_lossy());
+            ui.horizontal(|ui| {
+                let open = ui.button("Open next file");
+                let cancel = ui.button("Cancel");
+                if cancel.clicked() {
+                    ui.close();
+                }
+                open.clicked()
+                    || (!open.has_focus()
+                        && !cancel.has_focus()
+                        && ui.input_mut(|input| {
+                            input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                        }))
+            })
+            .inner
+        });
+        if modal.should_close() {
+            self.next_archive = None;
+        } else if modal.inner
+            && let Some(path) = self.next_archive.take()
+        {
+            self.stop_slideshow(ctx);
+            if let Err(error) = self.open_path(&path) {
+                self.notice = Some(format!("Open failed: {error}"));
+            }
+            self.refresh_status(ctx);
+        } else {
+            return;
+        }
+        ctx.request_repaint();
+    }
+
+    fn key(&mut self, action: Action, repeat: bool, ctx: &Context, frame: &eframe::Frame) -> bool {
         let g_pending = std::mem::take(&mut self.g_pending);
         match action {
             Action::Quit => {
@@ -181,6 +230,15 @@ impl Viewer {
             }
             Action::Next if visible.end < self.album.pages().len() => {
                 self.album.select(visible.end)
+            }
+            Action::Next if !repeat => {
+                match self.album.next_archive() {
+                    Ok(path) => self.next_archive = path,
+                    Err(error) => {
+                        self.notice = Some(format!("Finding next archive failed: {error}"))
+                    }
+                }
+                return false;
             }
             Action::ShiftSpreadBackward | Action::ShiftSpreadForward if self.spread => {
                 return self.album.shift_spread(
@@ -271,6 +329,7 @@ impl Viewer {
         };
         let pages = self.album.pages();
         if self.help
+            || self.next_archive.is_some()
             || visible.len() == pages.len()
             || pages[visible.clone()]
                 .iter()
@@ -371,11 +430,16 @@ impl Viewer {
 
 impl eframe::App for Viewer {
     fn logic(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
-        let actions: Vec<_> =
-            ctx.input(|input| input.events.iter().filter_map(Action::from_event).collect());
         let mut changed = false;
-        for action in actions {
-            changed |= self.key(action, ctx, frame);
+        if self.next_archive.is_none() {
+            let actions: Vec<_> =
+                ctx.input(|input| input.events.iter().filter_map(Action::from_event).collect());
+            for (action, repeat) in actions {
+                changed |= self.key(action, repeat, ctx, frame);
+                if self.next_archive.is_some() {
+                    break;
+                }
+            }
         }
         let visible = self.visible();
         self.loader
@@ -387,6 +451,7 @@ impl eframe::App for Viewer {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.show_next_archive_prompt(ui.ctx());
         let rect = ui.max_rect();
         let bottom = (rect.bottom() - 26.).max(rect.top());
         let canvas = Rect::from_min_max(rect.min, pos2(rect.right(), bottom));

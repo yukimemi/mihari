@@ -133,6 +133,28 @@ impl Album {
         })
     }
 
+    pub(crate) fn next_archive(&self) -> io::Result<Option<PathBuf>> {
+        let Some(archive) = &self.archive else {
+            return Ok(None);
+        };
+        let directory = archive.path.parent().unwrap();
+        let mut next: Option<PathBuf> = None;
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            let name = PathBuf::from(entry.file_name());
+            if has_extension(&name, ARCHIVE_EXTENSIONS)
+                && compare_names(&name, &archive.path).is_gt()
+                && next
+                    .as_ref()
+                    .is_none_or(|candidate| compare_names(&name, candidate).is_lt())
+                && entry.file_type()?.is_file()
+            {
+                next = Some(name);
+            }
+        }
+        Ok(next.map(|name| directory.join(name)))
+    }
+
     pub(crate) fn current_directory(&self) -> Option<&Path> {
         match &self.archive {
             Some(archive) => archive.path.parent(),

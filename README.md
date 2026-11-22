@@ -20,6 +20,8 @@ Images are sorted naturally within each directory (`page2` before `page10`). Wit
 
 Open a `.zip` or `.cbz` directly or with `o`. Each archive is a separate read-only album: images in nested directories are included and sorted naturally by their full path inside the archive. Pages are loaded on demand without extracting them to disk, and move shortcuts do not modify the archive. Stored and Deflate-compressed ZIP entries are supported; encrypted archives and RAR files are not. Folder scans still include only loose images.
 
+Press `j` or `l` again on the last page or spread to ask before opening the next ZIP/CBZ in the same folder, in natural filename order. Choose **Open next file** (or press `Enter`) to start on page 1, or **Cancel** (or press `Esc`) to stay. No prompt is shown if there is no next archive, and the slideshow still loops within the current archive.
+
 | Keys | Action |
 | --- | --- |
 | `h` / `k`, `j` / `l` | Previous, next |

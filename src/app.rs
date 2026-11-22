@@ -10,7 +10,7 @@ use eframe::egui::{
 };
 
 use crate::{
-    album::{Album, EXTENSIONS},
+    album::{ARCHIVE_EXTENSIONS, Album, EXTENSIONS},
     config::{Config, Direction},
     input::Action,
     loader::Loader,
@@ -126,20 +126,20 @@ impl Viewer {
     fn open(&mut self, ctx: &Context, frame: &eframe::Frame, folder: bool) -> io::Result<()> {
         self.stop_slideshow(ctx);
         let mut dialog = rfd::FileDialog::new().set_parent(frame);
-        if let Some(dir) = self
-            .album
-            .pages()
-            .get(self.album.active())
-            .and_then(|page| page.path.parent())
-        {
+        if let Some(dir) = self.album.current_directory() {
             dialog = dialog.set_directory(dir);
         }
         let path = if folder {
             dialog.set_title("Open image folder").pick_folder()
         } else {
+            let extensions: Vec<_> = EXTENSIONS
+                .iter()
+                .chain(ARCHIVE_EXTENSIONS)
+                .copied()
+                .collect();
             dialog
-                .set_title("Open image")
-                .add_filter("Images", EXTENSIONS)
+                .set_title("Open image or comic archive")
+                .add_filter("Images and ZIP/CBZ archives", &extensions)
                 .pick_file()
         };
         if let Some(path) = path {
@@ -363,7 +363,7 @@ impl Viewer {
     fn paint_help(&self, painter: &Painter, canvas: Rect) {
         let lines = [
             "h / k  previous    j / l  next    gg / G  first / last",
-            "o  open image    O  open folder",
+            "o  open image / archive    O  open folder",
             "v  spread    r  reading direction    Tab  select page",
             "[ / ]  shift spread back / forward by one page",
             &self.sort_help,
@@ -393,12 +393,8 @@ impl eframe::App for Viewer {
             changed |= self.key(action, ctx, frame);
         }
         let visible = self.visible();
-        self.loader.update(
-            ctx,
-            self.album.pages(),
-            visible.clone(),
-            self.config.preload,
-        );
+        self.loader
+            .update(ctx, &self.album, visible.clone(), self.config.preload);
         changed |= self.tick(ctx, visible);
         if changed {
             self.refresh_status(ctx);

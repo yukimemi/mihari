@@ -5,12 +5,12 @@ use std::{
 };
 
 use eframe::egui::{
-    self, Align2, Color32, Context, FontId, Painter, Rect, StrokeKind, TextureHandle,
-    ViewportCommand, WindowLevel, pos2, vec2,
+    self, Align2, Color32, Context, FontId, Painter, Rect, TextureHandle, ViewportCommand,
+    WindowLevel, pos2, vec2,
 };
 
 use crate::{
-    album::{ARCHIVE_EXTENSIONS, Album, EXTENSIONS},
+    album::{ARCHIVE_EXTENSIONS, Album, EXTENSIONS, Page},
     config::{Config, Direction},
     input::Action,
     loader::Loader,
@@ -296,20 +296,19 @@ impl Viewer {
         true
     }
 
-    fn paint_canvas(&self, painter: &Painter, canvas: Rect) {
+    fn paint_canvas(&self, painter: &Painter, canvas: Rect, pages: &[Page]) {
         painter.rect_filled(canvas, 0., BACKGROUND);
         if self.help {
             self.paint_help(painter, canvas);
             return;
         }
-        let pages = &self.album.pages()[self.visible()];
         match pages {
             [] => centered(
                 painter,
                 canvas,
                 "No images  ·  o to open a file  ·  O to open a folder",
             ),
-            [page] => self.paint_page(painter, canvas, self.loader.get(page.id), false),
+            [page] => Self::paint_page(painter, canvas, self.loader.get(page.id)),
             [first, second] => {
                 let (left, right) = match self.direction {
                     Direction::Rtl => (second, first),
@@ -318,16 +317,15 @@ impl Viewer {
                 let left_image = self.loader.get(left.id);
                 let right_image = self.loader.get(right.id);
                 let (left_rect, right_rect) = spread_rects(canvas, left_image, right_image);
-                let active_id = self.album.pages()[self.album.active()].id;
-                self.paint_page(painter, left_rect, left_image, left.id == active_id);
-                self.paint_page(painter, right_rect, right_image, right.id == active_id);
+                Self::paint_page(painter, left_rect, left_image);
+                Self::paint_page(painter, right_rect, right_image);
             }
             _ => unreachable!("a spread has at most two pages"),
         }
     }
 
-    fn paint_page(&self, painter: &Painter, bounds: Rect, image: CachedImage<'_>, selected: bool) {
-        let rect = match image {
+    fn paint_page(painter: &Painter, bounds: Rect, image: CachedImage<'_>) {
+        match image {
             Some(Ok(texture)) => {
                 let size = texture.size_vec2();
                 let scale = (bounds.width() / size.x).min(bounds.height() / size.y);
@@ -338,25 +336,12 @@ impl Viewer {
                     Rect::from_min_max(pos2(0., 0.), pos2(1., 1.)),
                     Color32::WHITE,
                 );
-                rect
             }
             Some(Err(error)) => {
                 let clipped = painter.with_clip_rect(bounds);
                 centered(&clipped, bounds, error);
-                bounds
             }
-            None => {
-                centered(painter, bounds, "Loading…");
-                bounds
-            }
-        };
-        if selected {
-            painter.rect_stroke(
-                rect,
-                0.,
-                (2., Color32::from_rgb(105, 186, 255)),
-                StrokeKind::Inside,
-            );
+            None => centered(painter, bounds, "Loading…"),
         }
     }
 
@@ -406,16 +391,51 @@ impl eframe::App for Viewer {
         let bottom = (rect.bottom() - 26.).max(rect.top());
         let canvas = Rect::from_min_max(rect.min, pos2(rect.right(), bottom));
         let footer = Rect::from_min_max(pos2(rect.left(), bottom), rect.max);
-        self.paint_canvas(&ui.painter_at(canvas), canvas);
+        let visible = self.visible();
+        self.paint_canvas(
+            &ui.painter_at(canvas),
+            canvas,
+            &self.album.pages()[visible.start..visible.end],
+        );
         let painter = ui.painter_at(footer);
         painter.rect_filled(footer, 0., Color32::from_gray(29));
-        painter.text(
-            pos2(footer.left() + 9., footer.center().y),
-            Align2::LEFT_CENTER,
-            self.notice.as_deref().unwrap_or(&self.status),
-            FontId::proportional(13.),
+        let font = FontId::proportional(13.);
+        let center_y = footer.center().y;
+        let status = painter.layout_no_wrap(
+            self.notice.as_deref().unwrap_or(&self.status).to_owned(),
+            font.clone(),
             TEXT,
         );
+        let mut status_clip = footer;
+        if !self.help && visible.len() == 2 {
+            let right = match self.direction {
+                Direction::Rtl => visible.start,
+                Direction::Ltr => visible.start + 1,
+            };
+            let selection = painter.layout_no_wrap(
+                if self.album.active() == right {
+                    "Selected: right"
+                } else {
+                    "Selected: left"
+                }
+                .to_owned(),
+                font,
+                TEXT,
+            );
+            let label = Align2::RIGHT_CENTER
+                .anchor_size(pos2(footer.right() - 9., center_y), selection.size());
+            let status_right = label.left() - 9.;
+            if self.notice.is_none() || footer.left() + 9. + status.size().x <= status_right {
+                painter.galley(label.min, selection, TEXT);
+                status_clip.max.x = status_right;
+            }
+        }
+        let status_position = Align2::LEFT_CENTER
+            .anchor_size(pos2(footer.left() + 9., center_y), status.size())
+            .min;
+        painter
+            .with_clip_rect(status_clip)
+            .galley(status_position, status, TEXT);
     }
 }
 

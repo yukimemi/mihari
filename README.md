@@ -27,7 +27,7 @@ Open a `.zip` or `.cbz` directly or with `o`. Each archive is a separate read-on
 | `o`, `O` | Open an image or ZIP/CBZ archive, open a folder |
 | `v`, `r` | Toggle spreads, reverse reading direction |
 | `[`, `]` | Shift the current spread back or forward by one page |
-| `Tab` | Select the other page in a spread (the blue outline marks the move target) |
+| `Tab` | Select the other page in a spread (the footer shows the selected side) |
 | A key from `[move]`, `u` | Move the selected image, undo the last move |
 | `s`, `t` | Toggle slideshow, toggle always-on-top |
 | `f`, `Esc` | Toggle fullscreen; dismiss help, exit fullscreen, or stop the slideshow |

@@ -4,6 +4,8 @@
 
 Mihari is a keyboard-driven image viewer and sorter built in Rust.
 
+Prebuilt binaries for Windows (x86-64), macOS (Apple Silicon), and Linux (x86-64, glibc) are available on [GitHub Releases](https://github.com/yukimemi/mihari/releases/latest).
+
 ```powershell
 cargo install mihari --locked
 mihari 'D:\Pictures\Manga'

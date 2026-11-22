@@ -1,5 +1,5 @@
 preset = "github.com/yukimemi/pj-presets:base"
-applied_at = "2026-11-22T12:43:48.3895147Z"
+applied_at = "2026-11-22T14:05:29.7825914Z"
 
 [[templates]]
 source = "github.com/yukimemi/pj-base"
@@ -10,6 +10,11 @@ version = "0.18.0"
 source = "github.com/yukimemi/pj-rust"
 rev = "45c10dec08dc12c48d3d0521b68d6ac481362ee8"
 version = "0.8.1"
+
+[[templates]]
+source = "github.com/yukimemi/pj-rust-gui"
+rev = "48e710f7bf097d3d06d4b640276f8e41bc912597"
+version = "0.1.0"
 
 [files.".agents/skills/renri/SKILL.md"]
 once_applied = true
@@ -35,6 +40,9 @@ content_hash = "4e2735f40c2ae61014810159a2458da2edc1646589f5f65d9f2f3d099366c9a8
 [files.".github/workflows/ci.yml"]
 content_hash = "8a53e46d208f472b95504f9d3c8951b7b7daccbbb222469a87a7df93059b4289"
 
+[files.".github/workflows/gui-release.yml"]
+content_hash = "d539fdfb57c0eaeb8f983c038c089885714b580e78b514ce1311d5ffc617f78a"
+
 [files.".github/workflows/kata-apply.yml"]
 content_hash = "c47add76ce8c17a0fff04bc18d2bbd8fe8c3cd03cd93fbe24a16ec4ba162aff4"
 
@@ -46,7 +54,7 @@ content_hash = "8cc3225f71bba076eaee1a4f5b26cef72348dfe37e539e94a95f3544a4cea4b6
 once_applied = true
 
 [files."AGENTS.md"]
-content_hash = "e375806660bfab1501df00e17947ad062ff2e31ef15d8ae1ea62f996ce79dd5a"
+content_hash = "bef9848722feb6ba593d7424a12619d8993eab3641ee36685fe70722d0371256"
 
 [files."GEMINI.md"]
 content_hash = "3670f70a2f0be4013926bab6e878b90a42ad64c17899080aef4d193b246fa390"
@@ -73,7 +81,7 @@ content_hash = "089f90baf996c8e39253746a6c46ddc9951ed656364e1ff2a14c1c5ac9c15468
 content_hash = "2ada1cf4347db9e98fadd67ca72cd9e29042c5bf6ab719d666b5d71f97663e81"
 
 [files."renovate.json"]
-content_hash = "ea464978679041c69a3e18085f9a2ce846b9762ff02ab2801ed22cfbbf1487ae"
+content_hash = "c3051ca904568f5c5f8bdb9237588ac59a13a4f380dea893de142ba62fe90115"
 once_applied = true
 
 [files."renri.toml"]

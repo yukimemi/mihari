@@ -220,15 +220,21 @@ fn decode_reader(
     max_side: u32,
 ) -> image::ImageResult<egui::ColorImage> {
     if jpeg_xl {
-        decode_image(JxlDecoder::new(reader.into_inner())?, max_side)
+        // JPEG XL decoding already applies the codestream orientation.
+        decode_image(JxlDecoder::new(reader.into_inner())?, max_side, false)
     } else {
-        decode_image(reader.with_guessed_format()?.into_decoder()?, max_side)
+        decode_image(
+            reader.with_guessed_format()?.into_decoder()?,
+            max_side,
+            true,
+        )
     }
 }
 
 fn decode_image(
     mut decoder: impl ImageDecoder,
     max_side: u32,
+    apply_exif_orientation: bool,
 ) -> image::ImageResult<egui::ColorImage> {
     let (width, height) = decoder.dimensions();
     if width == 0 || height == 0 {
@@ -240,7 +246,11 @@ fn decode_image(
     let mut limits = Limits::default();
     limits.reserve(decoder.total_bytes())?;
     decoder.set_limits(limits)?;
-    let orientation = decoder.orientation()?;
+    let orientation = if apply_exif_orientation {
+        Some(decoder.orientation()?)
+    } else {
+        None
+    };
     let mut image = DynamicImage::from_decoder(decoder)?;
 
     // Both limits are invariant under rotation, so reduce the buffer before transforming it.
@@ -251,7 +261,9 @@ fn decode_image(
         let scaled = |side| (f64::from(side) * scale).floor().max(1.0) as u32;
         image = image.thumbnail_exact(scaled(width), scaled(height));
     }
-    image.apply_orientation(orientation);
+    if let Some(orientation) = orientation {
+        image.apply_orientation(orientation);
+    }
 
     let size = [image.width() as usize, image.height() as usize];
     Ok(match image {
@@ -271,6 +283,49 @@ mod tests {
     use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
     use super::*;
+
+    // Little-endian TIFF with one Orientation tag (6, rotate 90° clockwise).
+    const EXIF_ROTATE_90: &[u8] =
+        b"II\x2a\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0";
+
+    #[test]
+    fn jpeg_xl_ignores_exif_orientation() -> image::ImageResult<()> {
+        // Lossless 12×5 red image with the default codestream orientation.
+        let codestream = b"\xff\x0a\x20\x00\x16\x80\x48\x08\x00\x01\x00\x38\x00\x4b\x18\x8b\
+                           \x15\x80\x5d\xd2\x7f\x14\x89\x75\x48\xfc\x01";
+        let mut bytes = b"\0\0\0\x0cJXL \x0d\x0a\x87\x0a\0\0\0\x14ftypjxl \0\0\0\0jxl ".to_vec();
+        bytes.extend_from_slice(b"\0\0\0\x26Exif\0\0\0\0");
+        bytes.extend_from_slice(EXIF_ROTATE_90);
+        bytes.extend_from_slice(b"\0\0\0\x23jxlc");
+        bytes.extend_from_slice(codestream);
+
+        let mut decoder = JxlDecoder::new(Cursor::new(&bytes))?;
+        assert_eq!(
+            decoder.orientation()?,
+            image::metadata::Orientation::Rotate90
+        );
+        let image = decode_reader(ImageReader::new(Cursor::new(bytes)), true, 4096)?;
+        assert_eq!(image.size, [12, 5]);
+        Ok(())
+    }
+
+    #[test]
+    fn jpeg_applies_exif_orientation() -> image::ImageResult<()> {
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg).encode(
+            &[0; 12 * 5],
+            12,
+            5,
+            image::ExtendedColorType::L8,
+        )?;
+        let mut bytes = b"\xff\xd8\xff\xe1\0\x22Exif\0\0".to_vec();
+        bytes.extend_from_slice(EXIF_ROTATE_90);
+        bytes.extend_from_slice(&jpeg[2..]);
+
+        let image = decode_reader(ImageReader::new(Cursor::new(bytes)), false, 4096)?;
+        assert_eq!(image.size, [5, 12]);
+        Ok(())
+    }
 
     #[test]
     fn archive_pages_follow_natural_path_order_and_cannot_be_moved() -> anyhow::Result<()> {

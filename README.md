@@ -61,4 +61,4 @@ sorted = '{{ home() }}/Pictures/Mihari'
 
 [teravars](https://github.com/yukimemi/teravars) provides `[vars]`, `system.*`, and `include`. Relative folder and move paths resolve from the config directory (or the parent directory of an explicitly selected config file). `[move]` keys are single case-sensitive ASCII letters or digits that do not conflict with built-in shortcuts. Missing destinations are created on the first move. If you don't want sorted images picked up on the next recursive scan, put their destinations outside the startup folders.
 
-Mihari supports JPEG, JPEG XL, PNG, WebP, GIF, BMP, TIFF, ICO, and PNM. Animated images are shown as stills. The current page takes priority, and decoding and preloading happen in the background.
+Mihari supports JPEG, JPEG XL, PNG, WebP, GIF, BMP, TIFF, ICO, and PNM. JPEG XL pages use the codestream orientation, not the Exif orientation tag. Animated images are shown as stills. The current page takes priority, and decoding and preloading happen in the background.

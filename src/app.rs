@@ -182,6 +182,12 @@ impl Viewer {
             Action::Next if visible.end < self.album.pages().len() => {
                 self.album.select(visible.end)
             }
+            Action::ShiftSpreadBackward | Action::ShiftSpreadForward if self.spread => {
+                return self.album.shift_spread(
+                    self.config.cover,
+                    matches!(action, Action::ShiftSpreadForward),
+                );
+            }
             Action::FirstPrefix => self.album.select(0),
             Action::Last => self
                 .album
@@ -359,6 +365,7 @@ impl Viewer {
             "h / k  previous    j / l  next    gg / G  first / last",
             "o  open image    O  open folder",
             "v  spread    r  reading direction    Tab  select page",
+            "[ / ]  shift spread back / forward by one page",
             &self.sort_help,
             "s  slideshow    t  always on top    f  fullscreen",
             "? / F1 / Esc  close help    q  quit",

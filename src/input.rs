@@ -4,6 +4,8 @@ use eframe::egui::{Event, Key};
 pub(crate) enum Action {
     Previous,
     Next,
+    ShiftSpreadBackward,
+    ShiftSpreadForward,
     FirstPrefix,
     Last,
     OpenFile,
@@ -58,6 +60,8 @@ impl Action {
         }
         let action = match key {
             Key::Tab => Self::SelectOther,
+            Key::OpenBracket if !modifiers.shift => Self::ShiftSpreadBackward,
+            Key::CloseBracket if !modifiers.shift => Self::ShiftSpreadForward,
             Key::Escape => Self::Escape,
             Key::F1 => Self::Help,
             Key::Questionmark => Self::Help,

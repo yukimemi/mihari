@@ -25,6 +25,7 @@ struct Move {
 pub(crate) struct Album {
     pages: Vec<Page>,
     active: usize,
+    spread_shifted: bool,
     history: Vec<Move>,
 }
 
@@ -123,11 +124,27 @@ impl Album {
             return 0..0;
         }
         let active = self.active;
-        if !spread || (cover && active == 0) {
+        let first_pair = usize::from(cover != self.spread_shifted);
+        if !spread || active < first_pair {
             return active..active + 1;
         }
-        let start = active - (active - usize::from(cover)) % 2;
+        let start = active - (active - first_pair) % 2;
         start..(start + 2).min(len)
+    }
+
+    pub(crate) fn shift_spread(&mut self, cover: bool, forward: bool) -> bool {
+        let start = self.visible(true, cover).start;
+        let start = if forward {
+            (start + 1 < self.pages.len()).then_some(start + 1)
+        } else {
+            start.checked_sub(1)
+        };
+        let Some(start) = start else {
+            return false;
+        };
+        self.spread_shifted = start % 2 != usize::from(cover);
+        self.select(start);
+        true
     }
 
     pub(crate) fn select(&mut self, index: usize) {

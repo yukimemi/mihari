@@ -21,11 +21,14 @@ Images are sorted naturally within each directory (`page2` before `page10`). Wit
 | `gg`, `G` | First, last |
 | `o`, `O` | Open an image, open a folder |
 | `v`, `r` | Toggle spreads, reverse reading direction |
+| `[`, `]` | Shift the current spread back or forward by one page |
 | `Tab` | Select the other page in a spread (the blue outline marks the move target) |
 | A key from `[move]`, `u` | Move the selected image, undo the last move |
 | `s`, `t` | Toggle slideshow, toggle always-on-top |
 | `f`, `Esc` | Toggle fullscreen; dismiss help, exit fullscreen, or stop the slideshow |
 | `?` / `F1`, `q` | Help, quit |
+
+In spread mode, `[` and `]` change the page pairing. For example, `]` shifts pages 2–3 to 3–4, and `l` then advances to 5–6. The adjusted pairing stays in effect until you shift it again or open another album.
 
 Moves and undos never overwrite existing files. You can undo multiple moves until you open another album or quit. The slideshow loops and restores the pre-slideshow window level when stopped. Always-on-top is not supported on Wayland.
 

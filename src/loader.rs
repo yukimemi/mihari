@@ -1,8 +1,7 @@
 use std::{
     collections::HashMap,
-    io,
+    io::{self, BufRead, Cursor, Seek},
     ops::Range,
-    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -16,14 +15,16 @@ use image::{
     DynamicImage, ImageDecoder, ImageError, ImageReader, Limits,
     error::{ParameterError, ParameterErrorKind},
 };
+use jxl_oxide::integration::JxlDecoder;
 
-use crate::album::Page;
+use crate::album::{Album, PageSource};
 
 const MAX_TEXTURE_SIDE: usize = 4096;
 const MAX_TEXTURE_PIXELS: u64 = 8 * 1024 * 1024;
 
 struct Job {
-    path: PathBuf,
+    source: PageSource,
+    jpeg_xl: bool,
     max_side: u32,
 }
 
@@ -55,7 +56,7 @@ impl Loader {
             .spawn(move || {
                 while let Ok(job) = work.recv() {
                     let result = (!worker_cancelled.load(Ordering::Relaxed))
-                        .then(|| decode(&job.path, job.max_side).map_err(|err| err.to_string()));
+                        .then(|| decode(job).map_err(|err| err.to_string()));
                     if done.send(result).is_err() {
                         break;
                     }
@@ -76,10 +77,11 @@ impl Loader {
     pub(crate) fn update(
         &mut self,
         ctx: &egui::Context,
-        pages: &[Page],
+        album: &Album,
         visible: Range<usize>,
         preload: usize,
     ) {
+        let pages = album.pages();
         let start = visible.start.min(pages.len());
         let end = visible.end.min(pages.len()).max(start);
         let (behind, ahead) = if start < end && preload > 0 {
@@ -151,7 +153,11 @@ impl Loader {
         {
             self.cancelled.store(false, Ordering::Relaxed);
             let job = Job {
-                path: page.path.clone(),
+                source: album.source(page),
+                jpeg_xl: page
+                    .path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("jxl")),
                 max_side: max_side as u32,
             };
             if self.jobs.try_send(job).is_ok() {
@@ -192,10 +198,44 @@ impl Drop for Loader {
     }
 }
 
-fn decode(path: &Path, max_side: u32) -> image::ImageResult<egui::ColorImage> {
-    let mut decoder = ImageReader::open(path)?
-        .with_guessed_format()?
-        .into_decoder()?;
+fn decode(job: Job) -> image::ImageResult<egui::ColorImage> {
+    match job.source {
+        PageSource::File(path) => {
+            decode_reader(ImageReader::open(path)?, job.jpeg_xl, job.max_side)
+        }
+        PageSource::Archive { archive, index } => {
+            let bytes = archive.read_entry(index)?;
+            decode_reader(
+                ImageReader::new(Cursor::new(bytes)),
+                job.jpeg_xl,
+                job.max_side,
+            )
+        }
+    }
+}
+
+fn decode_reader(
+    reader: ImageReader<impl BufRead + Seek>,
+    jpeg_xl: bool,
+    max_side: u32,
+) -> image::ImageResult<egui::ColorImage> {
+    if jpeg_xl {
+        // JPEG XL decoding already applies the codestream orientation.
+        decode_image(JxlDecoder::new(reader.into_inner())?, max_side, false)
+    } else {
+        decode_image(
+            reader.with_guessed_format()?.into_decoder()?,
+            max_side,
+            true,
+        )
+    }
+}
+
+fn decode_image(
+    mut decoder: impl ImageDecoder,
+    max_side: u32,
+    apply_exif_orientation: bool,
+) -> image::ImageResult<egui::ColorImage> {
     let (width, height) = decoder.dimensions();
     if width == 0 || height == 0 {
         return Err(ImageError::Parameter(ParameterError::from_kind(
@@ -206,7 +246,11 @@ fn decode(path: &Path, max_side: u32) -> image::ImageResult<egui::ColorImage> {
     let mut limits = Limits::default();
     limits.reserve(decoder.total_bytes())?;
     decoder.set_limits(limits)?;
-    let orientation = decoder.orientation()?;
+    let orientation = if apply_exif_orientation {
+        Some(decoder.orientation()?)
+    } else {
+        None
+    };
     let mut image = DynamicImage::from_decoder(decoder)?;
 
     // Both limits are invariant under rotation, so reduce the buffer before transforming it.
@@ -217,7 +261,9 @@ fn decode(path: &Path, max_side: u32) -> image::ImageResult<egui::ColorImage> {
         let scaled = |side| (f64::from(side) * scale).floor().max(1.0) as u32;
         image = image.thumbnail_exact(scaled(width), scaled(height));
     }
-    image.apply_orientation(orientation);
+    if let Some(orientation) = orientation {
+        image.apply_orientation(orientation);
+    }
 
     let size = [image.width() as usize, image.height() as usize];
     Ok(match image {
@@ -228,4 +274,111 @@ fn decode(path: &Path, max_side: u32) -> image::ImageResult<egui::ColorImage> {
         DynamicImage::ImageLuma8(buffer) => egui::ColorImage::from_gray(size, buffer.as_raw()),
         image => egui::ColorImage::from_rgba_unmultiplied(size, image.into_rgba8().as_raw()),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs::File, io::Write};
+
+    use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+
+    use super::*;
+
+    // Little-endian TIFF with one Orientation tag (6, rotate 90° clockwise).
+    const EXIF_ROTATE_90: &[u8] =
+        b"II\x2a\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0";
+
+    #[test]
+    fn jpeg_xl_ignores_exif_orientation() -> image::ImageResult<()> {
+        // Lossless 12×5 red image with the default codestream orientation.
+        let codestream = b"\xff\x0a\x20\x00\x16\x80\x48\x08\x00\x01\x00\x38\x00\x4b\x18\x8b\
+                           \x15\x80\x5d\xd2\x7f\x14\x89\x75\x48\xfc\x01";
+        let mut bytes = b"\0\0\0\x0cJXL \x0d\x0a\x87\x0a\0\0\0\x14ftypjxl \0\0\0\0jxl ".to_vec();
+        bytes.extend_from_slice(b"\0\0\0\x26Exif\0\0\0\0");
+        bytes.extend_from_slice(EXIF_ROTATE_90);
+        bytes.extend_from_slice(b"\0\0\0\x23jxlc");
+        bytes.extend_from_slice(codestream);
+
+        let mut decoder = JxlDecoder::new(Cursor::new(&bytes))?;
+        assert_eq!(
+            decoder.orientation()?,
+            image::metadata::Orientation::Rotate90
+        );
+        let image = decode_reader(ImageReader::new(Cursor::new(bytes)), true, 4096)?;
+        assert_eq!(image.size, [12, 5]);
+        Ok(())
+    }
+
+    #[test]
+    fn jpeg_applies_exif_orientation() -> image::ImageResult<()> {
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg).encode(
+            &[0; 12 * 5],
+            12,
+            5,
+            image::ExtendedColorType::L8,
+        )?;
+        let mut bytes = b"\xff\xd8\xff\xe1\0\x22Exif\0\0".to_vec();
+        bytes.extend_from_slice(EXIF_ROTATE_90);
+        bytes.extend_from_slice(&jpeg[2..]);
+
+        let image = decode_reader(ImageReader::new(Cursor::new(bytes)), false, 4096)?;
+        assert_eq!(image.size, [5, 12]);
+        Ok(())
+    }
+
+    #[test]
+    fn archive_pages_follow_natural_path_order_and_cannot_be_moved() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("漫画.CBZ");
+        let mut zip = ZipWriter::new(File::create(&path)?);
+        for (name, rgb, method) in [
+            ("章10/page2.ppm", [0, 0, 255], CompressionMethod::Stored),
+            ("章2/page10.ppm", [0, 255, 0], CompressionMethod::Deflated),
+            ("__MACOSX/page1.ppm", [0, 0, 0], CompressionMethod::Stored),
+            ("章2/._page2.ppm", [0, 0, 0], CompressionMethod::Stored),
+            ("章2/page2.PPM", [255, 0, 0], CompressionMethod::Stored),
+        ] {
+            let options = SimpleFileOptions::default().compression_method(method);
+            zip.start_file(name, options)?;
+            zip.write_all(b"P6\n1 1\n255\n")?;
+            zip.write_all(&rgb)?;
+        }
+        zip.start_file("ComicInfo.xml", SimpleFileOptions::default())?;
+        zip.write_all(b"<ComicInfo/>")?;
+        drop(zip.finish()?);
+
+        let mut album = Album::open(&path, false)?;
+        let destination = dir.path().join("sorted");
+        assert_eq!(
+            album.move_active(&destination).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(!destination.exists());
+
+        let pages = album
+            .pages()
+            .iter()
+            .map(|page| {
+                let image = decode(Job {
+                    source: album.source(page),
+                    jpeg_xl: false,
+                    max_side: 4096,
+                })?;
+                Ok((
+                    page.path.file_name().unwrap().to_str().unwrap(),
+                    image.pixels[0],
+                ))
+            })
+            .collect::<image::ImageResult<Vec<_>>>()?;
+        assert_eq!(
+            pages,
+            [
+                ("page2.PPM", egui::Color32::RED),
+                ("page10.ppm", egui::Color32::GREEN),
+                ("page2.ppm", egui::Color32::BLUE),
+            ]
+        );
+        Ok(())
+    }
 }

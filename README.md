@@ -9,19 +9,22 @@ Prebuilt binaries for Windows (x86-64), macOS (Apple Silicon), and Linux (x86-64
 ```powershell
 cargo install mihari --locked
 mihari 'D:\Pictures\Manga'
+mihari 'D:\Pictures\Manga\Volume 1.cbz'
 mihari --recurse 'D:\Pictures'
 mihari
 ```
 
-An explicit folder or image takes precedence over the startup folders in the configuration. Opening a file starts on that image and scans its containing folder. With no path, Mihari opens the configured `folders` as one album, in the order listed. With no configured folders, it opens an empty window; use `o` or `O` to open images. To build from a checkout, use `cargo install --path . --locked`.
+An explicit folder, image, or archive takes precedence over the startup folders in the configuration. Opening an image starts on that image and scans its containing folder. With no path, Mihari opens the configured `folders` as one album, in the order listed. With no configured folders, it opens an empty window; use `o` or `O` to open an album. To build from a checkout, use `cargo install --path . --locked`.
 
 Images are sorted naturally within each directory (`page2` before `page10`). With recursion enabled, each directory's images come before its subdirectories, which are visited in natural order. Directory links are not followed, and overlapping roots do not repeat images. `--recurse` (`-r`) and `--no-recurse` override the configuration. The effective setting also applies to folders opened from the window.
+
+Open a `.zip` or `.cbz` directly or with `o`. Each archive is a separate read-only album: images in nested directories are included and sorted naturally by their full path inside the archive. Pages are loaded on demand without extracting them to disk, and move shortcuts do not modify the archive. Stored and Deflate-compressed ZIP entries are supported; encrypted archives and RAR files are not. Folder scans still include only loose images.
 
 | Keys | Action |
 | --- | --- |
 | `h` / `k`, `j` / `l` | Previous, next |
 | `gg`, `G` | First, last |
-| `o`, `O` | Open an image, open a folder |
+| `o`, `O` | Open an image or ZIP/CBZ archive, open a folder |
 | `v`, `r` | Toggle spreads, reverse reading direction |
 | `[`, `]` | Shift the current spread back or forward by one page |
 | `Tab` | Select the other page in a spread (the blue outline marks the move target) |
@@ -58,4 +61,4 @@ sorted = '{{ home() }}/Pictures/Mihari'
 
 [teravars](https://github.com/yukimemi/teravars) provides `[vars]`, `system.*`, and `include`. Relative folder and move paths resolve from the config directory (or the parent directory of an explicitly selected config file). `[move]` keys are single case-sensitive ASCII letters or digits that do not conflict with built-in shortcuts. Missing destinations are created on the first move. If you don't want sorted images picked up on the next recursive scan, put their destinations outside the startup folders.
 
-Mihari supports JPEG, PNG, WebP, GIF, BMP, TIFF, ICO, and PNM. Animated images are shown as stills. The current page takes priority, and decoding and preloading happen in the background.
+Mihari supports JPEG, JPEG XL, PNG, WebP, GIF, BMP, TIFF, ICO, and PNM. JPEG XL pages use the codestream orientation, not the Exif orientation tag. Animated images are shown as stills. The current page takes priority, and decoding and preloading happen in the background.

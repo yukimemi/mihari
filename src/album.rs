@@ -1,18 +1,53 @@
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{self, ErrorKind};
+use std::io::{self, BufReader, ErrorKind, Read};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
+use zip::ZipArchive;
 
 pub(crate) const EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "ico", "pbm", "pgm", "ppm", "pam",
-    "pnm",
+    "jpg", "jpeg", "jxl", "png", "webp", "gif", "bmp", "tif", "tiff", "ico", "pbm", "pgm", "ppm",
+    "pam", "pnm",
 ];
+pub(crate) const ARCHIVE_EXTENSIONS: &[&str] = &["zip", "cbz"];
+const MAX_ENTRY_BYTES: u64 = 128 * 1024 * 1024;
 
 pub(crate) struct Page {
     pub(crate) id: usize,
     pub(crate) path: PathBuf,
+}
+
+pub(crate) enum PageSource {
+    File(PathBuf),
+    Archive { archive: Arc<Archive>, index: usize },
+}
+
+pub(crate) struct Archive {
+    path: PathBuf,
+    zip: Mutex<ZipArchive<BufReader<File>>>,
+}
+
+impl Archive {
+    pub(crate) fn read_entry(&self, index: usize) -> io::Result<Vec<u8>> {
+        let mut zip = self
+            .zip
+            .lock()
+            .map_err(|_| io::Error::other("ZIP reader stopped"))?;
+        let entry = zip.by_index(index)?;
+        let too_large = || io::Error::new(ErrorKind::InvalidData, "ZIP image exceeds 128 MiB");
+        if entry.size() > MAX_ENTRY_BYTES {
+            return Err(too_large());
+        }
+        let mut bytes = Vec::new();
+        entry.take(MAX_ENTRY_BYTES + 1).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_ENTRY_BYTES {
+            return Err(too_large());
+        }
+        Ok(bytes)
+    }
 }
 
 struct Move {
@@ -24,6 +59,7 @@ struct Move {
 #[derive(Default)]
 pub(crate) struct Album {
     pages: Vec<Page>,
+    archive: Option<Arc<Archive>>,
     active: usize,
     spread_shifted: bool,
     history: Vec<Move>,
@@ -36,10 +72,13 @@ impl Album {
         if kind.is_dir() {
             return Self::scan([Ok(path)], recurse);
         }
+        if kind.is_file() && has_extension(&path, ARCHIVE_EXTENSIONS) {
+            return Self::open_archive(path);
+        }
         if !kind.is_file() || !is_image(&path) {
             return Err(io::Error::new(
                 ErrorKind::InvalidInput,
-                "expected a folder or supported image file",
+                "expected a folder, supported image, or ZIP/CBZ archive",
             ));
         }
         let folder = path.parent().unwrap().to_path_buf();
@@ -50,6 +89,65 @@ impl Album {
             .position(|page| page.path == path)
             .ok_or_else(|| io::Error::new(ErrorKind::NotFound, "image not found in its folder"))?;
         Ok(album)
+    }
+
+    fn open_archive(path: PathBuf) -> io::Result<Self> {
+        let zip = ZipArchive::new(BufReader::new(File::open(&path)?))?;
+        let mut pages = Vec::new();
+        for index in 0..zip.len() {
+            let entry = zip.by_index_data(index)?;
+            if !entry.is_file() {
+                continue;
+            }
+            let Some(path) = entry.enclosed_name() else {
+                continue;
+            };
+            if is_image(&path)
+                && !path.components().any(|part| part.as_os_str() == "__MACOSX")
+                && !path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("._")
+            {
+                pages.push(Page { id: index, path });
+            }
+        }
+        if pages.is_empty() {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "ZIP archive contains no supported images",
+            ));
+        }
+        pages.sort_unstable_by(|a, b| {
+            natord::compare_ignore_case(&a.path.to_string_lossy(), &b.path.to_string_lossy())
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        Ok(Self {
+            pages,
+            archive: Some(Arc::new(Archive {
+                path,
+                zip: Mutex::new(zip),
+            })),
+            ..Self::default()
+        })
+    }
+
+    pub(crate) fn current_directory(&self) -> Option<&Path> {
+        match &self.archive {
+            Some(archive) => archive.path.parent(),
+            None => self.pages.get(self.active)?.path.parent(),
+        }
+    }
+
+    pub(crate) fn source(&self, page: &Page) -> PageSource {
+        match &self.archive {
+            Some(archive) => PageSource::Archive {
+                archive: Arc::clone(archive),
+                index: page.id,
+            },
+            None => PageSource::File(page.path.clone()),
+        }
     }
 
     pub(crate) fn open_folders(folders: &[PathBuf], recurse: bool) -> io::Result<Self> {
@@ -152,6 +250,12 @@ impl Album {
     }
 
     pub(crate) fn move_active(&mut self, folder: &Path) -> io::Result<()> {
+        if self.archive.is_some() {
+            return Err(io::Error::new(
+                ErrorKind::PermissionDenied,
+                "ZIP archives are read-only",
+            ));
+        }
         let index = self.active;
         let page = self
             .pages
@@ -193,12 +297,16 @@ fn folder_error(path: &Path, error: io::Error) -> io::Error {
 }
 
 fn is_image(path: &Path) -> bool {
+    has_extension(path, EXTENSIONS)
+}
+
+fn has_extension(path: &Path, extensions: &[&str]) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| {
-            EXTENSIONS
+            extensions
                 .iter()
-                .any(|image| ext.eq_ignore_ascii_case(image))
+                .any(|candidate| ext.eq_ignore_ascii_case(candidate))
         })
 }
 

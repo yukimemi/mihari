@@ -15,7 +15,7 @@ use crate::{album::Album, app::Viewer, config::Config};
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
-    /// Image or directory to open.
+    /// Image, directory, or ZIP/CBZ archive to open.
     path: Option<PathBuf>,
     /// Load this teravars TOML file or discover config files in this directory.
     #[arg(short, long)]

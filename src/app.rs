@@ -401,7 +401,7 @@ impl eframe::App for Viewer {
         painter.rect_filled(footer, 0., Color32::from_gray(29));
         let font = FontId::proportional(13.);
         let center_y = footer.center().y;
-        let status_clip = if !self.help && visible.len() == 2 {
+        let status_clip = if self.notice.is_none() && !self.help && visible.len() == 2 {
             let right = match self.direction {
                 Direction::Rtl => visible.start,
                 Direction::Ltr => visible.start + 1,

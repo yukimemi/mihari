@@ -23,7 +23,7 @@ rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 serde = { version = "1.0.229", features = ["derive"] }
 tempfile = "3.27"
 teravars = { version = "0.2.2", features = ["merge"] }
-tokio = { version = "1.53.1", features = ["rt"] }
+tokio = { version = "1.54.1", features = ["rt"] }
 toml = "1.2.1"
 zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

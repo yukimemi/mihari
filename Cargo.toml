@@ -22,7 +22,7 @@ rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 serde = { version = "1.0.229", features = ["derive"] }
 tempfile = "3.27"
 teravars = { version = "0.2.2", features = ["merge"] }
-toml = "1.1.8"
+toml = "1.2.1"
 zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(windows)'.build-dependencies]

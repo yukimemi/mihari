@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use kaishin::{KaishinOptions, UpdateOptions};
+use kaishin::{Checker, InstallMethod, KaishinOptions, UpdateOptions};
 
 pub(super) enum Update {
     Check,
@@ -23,38 +23,68 @@ impl Update {
     }
 
     fn execute(self) -> Result<()> {
-        let opts = KaishinOptions::new("yukimemi", "mihari", "mihari", env!("CARGO_PKG_VERSION"));
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("creating the update runtime")?
-            .block_on(async {
-                match self {
-                    Self::Check => {
-                        let latest = kaishin::check_latest_release(&opts)
-                            .await
-                            .context("failed to fetch latest release from GitHub")?;
-                        let current = &opts.current_version;
-                        if kaishin::is_update_available(current, &latest.tag_name)? {
-                            println!(
-                                "Mihari {} is available (installed: {current}). Run `mihari --self-update` to install it.",
-                                latest.tag_name
-                            );
-                            if !latest.html_url.is_empty() {
-                                println!("Release notes: {}", latest.html_url);
-                            }
-                        } else {
-                            println!("Mihari {current} is up to date.");
+        let opts = options();
+        runtime()?.block_on(async {
+            match self {
+                Self::Check => {
+                    let latest = kaishin::check_latest_release(&opts)
+                        .await
+                        .context("failed to fetch latest release from GitHub")?;
+                    let current = &opts.current_version;
+                    if kaishin::is_update_available(current, &latest.tag_name)? {
+                        println!(
+                            "Mihari {} is available (installed: {current}). Run `mihari --self-update` to install it.",
+                            latest.tag_name
+                        );
+                        if !latest.html_url.is_empty() {
+                            println!("Release notes: {}", latest.html_url);
                         }
-                        Ok(())
+                    } else {
+                        println!("Mihari {current} is up to date.");
                     }
-                    Self::Apply { yes } => {
-                        let update = UpdateOptions::new().yes(yes).prefer_github_release(false);
-                        kaishin::run_self_update(&opts, update).await
-                    }
+                    Ok(())
                 }
-            })
+                Self::Apply { yes } => {
+                    let update = UpdateOptions::new().yes(yes).prefer_github_release(false);
+                    kaishin::run_self_update(&opts, update).await
+                }
+            }
+        })
     }
+}
+
+pub(super) fn start_automatic_update() {
+    if let Err(error) = std::thread::Builder::new()
+        .name("mihari-update".into())
+        .spawn(|| {
+            if let Err(error) = automatic_update() {
+                eprintln!("Mihari automatic update failed: {error:#}");
+            }
+        })
+    {
+        eprintln!("Mihari could not start automatic updates: {error}");
+    }
+}
+
+fn automatic_update() -> Result<()> {
+    let exe = std::env::current_exe().context("locating the running executable")?;
+    if kaishin::detect_install_method(&exe) == InstallMethod::DevBuild || dirs::data_dir().is_none() {
+        return Ok(());
+    }
+    let checker = Checker::new(env!("CARGO_PKG_NAME"), options());
+    runtime()?.block_on(checker.auto_update())?;
+    Ok(())
+}
+
+fn options() -> KaishinOptions {
+    KaishinOptions::new("yukimemi", "mihari", "mihari", env!("CARGO_PKG_VERSION"))
+}
+
+fn runtime() -> Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("creating the update runtime")
 }
 
 #[cfg(windows)]

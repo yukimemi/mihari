@@ -27,6 +27,7 @@ pub(crate) struct Config {
     pub(crate) preload: usize,
     pub(crate) slideshow_seconds: u64,
     pub(crate) slideshow_always_on_top: bool,
+    pub(crate) auto_update: bool,
     #[serde(rename = "move")]
     pub(crate) move_keys: BTreeMap<char, PathBuf>,
 }
@@ -42,6 +43,7 @@ impl Default for Config {
             preload: 4,
             slideshow_seconds: 5,
             slideshow_always_on_top: true,
+            auto_update: true,
             move_keys: BTreeMap::new(),
         }
     }

@@ -73,6 +73,9 @@ fn main() -> Result<ExitCode> {
             .with_min_inner_size([320., 240.]),
         ..Default::default()
     };
+    if config.auto_update {
+        update::start_automatic_update();
+    }
     eframe::run_native(
         "Mihari",
         options,

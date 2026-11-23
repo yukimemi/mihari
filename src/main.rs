@@ -82,11 +82,8 @@ fn main() -> Result<ExitCode> {
         options,
         Box::new(move |cc| Ok(Box::new(Viewer::new(cc.egui_ctx.clone(), album, config)?))),
     );
-    // Closing the window must not interrupt an executable replacement or rollback.
-    if let Some(worker) = automatic_update
-        && worker.join().is_err()
-    {
-        eprintln!("Mihari automatic update worker panicked");
+    if let Some(update) = automatic_update {
+        update.stop();
     }
     viewer_result.map_err(|error| anyhow!("starting Mihari: {error}"))?;
     Ok(ExitCode::SUCCESS)

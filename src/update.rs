@@ -1,7 +1,16 @@
-use std::{path::Path, process::ExitCode, thread::JoinHandle};
+use std::{
+    fs::{self, File},
+    io::Write,
+    path::Path,
+    process::ExitCode,
+    thread::JoinHandle,
+    time::{Duration, SystemTime},
+};
 
 use anyhow::{Context, Result};
-use kaishin::{Checker, KaishinOptions, UpdateOptions};
+use kaishin::{KaishinOptions, UpdateCheckState, UpdateOptions};
+use serde::Deserialize;
+use tokio::sync::watch;
 
 pub(super) enum Update {
     Check,
@@ -53,15 +62,42 @@ impl Update {
     }
 }
 
-pub(super) fn start_automatic_update() -> Option<JoinHandle<()>> {
+pub(super) struct AutomaticUpdate {
+    cancel: watch::Sender<bool>,
+    worker: JoinHandle<()>,
+}
+
+impl AutomaticUpdate {
+    pub(super) fn stop(self) {
+        let _ = self.cancel.send(true);
+        if self.worker.join().is_err() {
+            eprintln!("Mihari automatic update worker panicked");
+        }
+    }
+}
+
+pub(super) fn start_automatic_update() -> Option<AutomaticUpdate> {
+    let (cancel, mut cancelled) = watch::channel(false);
+    let closing = cancelled.clone();
     match std::thread::Builder::new()
         .name("mihari-update".into())
-        .spawn(|| {
-            if let Err(error) = automatic_update() {
+        .spawn(move || {
+            if let Err(error) = runtime().and_then(|runtime| {
+                let result = runtime.block_on(async {
+                    tokio::select! {
+                        biased;
+                        _ = cancelled.changed() => Ok(()),
+                        result = automatic_update(&closing) => result,
+                    }
+                });
+                // A cancelled DNS lookup can still be running in Tokio's blocking pool.
+                runtime.shutdown_background();
+                result
+            }) {
                 eprintln!("Mihari automatic update failed: {error:#}");
             }
         }) {
-        Ok(worker) => Some(worker),
+        Ok(worker) => Some(AutomaticUpdate { cancel, worker }),
         Err(error) => {
             eprintln!("Mihari could not start automatic updates: {error}");
             None
@@ -69,25 +105,188 @@ pub(super) fn start_automatic_update() -> Option<JoinHandle<()>> {
     }
 }
 
-fn automatic_update() -> Result<()> {
+async fn automatic_update(closing: &watch::Receiver<bool>) -> Result<()> {
     let exe = std::env::current_exe().context("locating the running executable")?;
-    if is_cargo_build_output(&exe) || dirs::data_dir().is_none() {
+    if is_cargo_build_output(&exe) {
         return Ok(());
     }
-    let checker = Checker::new(env!("CARGO_PKG_NAME"), options());
-    runtime()?.block_on(checker.auto_update())?;
+    let Some(state_path) = kaishin::default_state_path(env!("CARGO_PKG_NAME")) else {
+        return Ok(());
+    };
+    if let Some(parent) = state_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let lock = File::options()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(state_path.with_extension("lock"))?;
+    if lock.try_lock().is_err() {
+        return Ok(());
+    }
+    #[cfg(windows)]
+    let _ = fs::remove_file(exe.with_added_extension("mihari-update-backup"));
+    if !kaishin::should_auto_check(
+        kaishin::load_check_state(&state_path).as_ref(),
+        kaishin::default_interval(),
+        SystemTime::now(),
+    ) {
+        return Ok(());
+    }
+
+    // Startup must not run external credential helpers.
+    let token = ["GH_TOKEN", "GITHUB_TOKEN"]
+        .into_iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .find(|value| !value.trim().is_empty());
+    let client = reqwest::Client::builder()
+        .user_agent(concat!("mihari/", env!("CARGO_PKG_VERSION")))
+        .build()?;
+    let request = client
+        .get("https://api.github.com/repos/yukimemi/mihari/releases/latest")
+        .timeout(Duration::from_secs(5));
+    let latest: Release = authorize(request, token.as_deref())
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    kaishin::save_check_state(
+        &state_path,
+        &UpdateCheckState {
+            last_checked_unix: SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)?
+                .as_secs(),
+            last_known_latest: Some(latest.tag_name.clone()),
+            last_known_url: Some(latest.html_url),
+        },
+    )?;
+    if !kaishin::is_update_available(env!("CARGO_PKG_VERSION"), &latest.tag_name)? {
+        return Ok(());
+    }
+
+    let target = self_update::get_target();
+    let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
+    let (target, asset) = [Some(target), compatible_target(target)]
+        .into_iter()
+        .flatten()
+        .find_map(|target| {
+            let name = format!("mihari-{target}.{extension}");
+            latest
+                .assets
+                .iter()
+                .find(|asset| asset.name == name)
+                .map(|asset| (target, asset))
+        })
+        .context("no compatible Mihari release archive")?;
+    let request = client
+        .get(&asset.url)
+        .header(reqwest::header::ACCEPT, "application/octet-stream")
+        .timeout(Duration::from_secs(120));
+    let mut download = authorize(request, token.as_deref())
+        .send()
+        .await?
+        .error_for_status()?;
+    let work = tempfile::tempdir()?;
+    let archive = work.path().join(&asset.name);
+    {
+        let mut file = File::create(&archive)?;
+        while let Some(chunk) = download.chunk().await? {
+            file.write_all(&chunk)?;
+        }
+    }
+    let extract = self_update::Extract::from_source(&archive);
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let mut binary = format!("mihari{suffix}");
+    if extract.extract_file(work.path(), &binary).is_err() {
+        binary = format!("mihari-{target}{suffix}");
+        extract.extract_file(work.path(), &binary)?;
+    }
+
+    // From here through replacement or rollback there is no cancellation point.
+    if !*closing.borrow() {
+        replace_executable(&exe, &work.path().join(binary))?;
+    }
     Ok(())
+}
+
+#[derive(Deserialize)]
+struct Release {
+    tag_name: String,
+    html_url: String,
+    assets: Vec<ReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseAsset {
+    name: String,
+    url: String,
+}
+
+fn authorize(request: reqwest::RequestBuilder, token: Option<&str>) -> reqwest::RequestBuilder {
+    match token {
+        Some(token) => request.bearer_auth(token.trim()),
+        None => request,
+    }
+}
+
+fn compatible_target(target: &str) -> Option<&'static str> {
+    match target {
+        "x86_64-pc-windows-msvc" => Some("x86_64-pc-windows-gnu"),
+        "x86_64-pc-windows-gnu" => Some("x86_64-pc-windows-msvc"),
+        "x86_64-unknown-linux-gnu" => Some("x86_64-unknown-linux-musl"),
+        "x86_64-unknown-linux-musl"
+            if Path::new("/lib/x86_64-linux-gnu/libc.so.6").exists()
+                || Path::new("/lib64/ld-linux-x86-64.so.2").exists() =>
+        {
+            Some("x86_64-unknown-linux-gnu")
+        }
+        _ => None,
+    }
+}
+
+fn replace_executable(exe: &Path, new: &Path) -> Result<()> {
+    let parent = exe.parent().context("executable has no parent directory")?;
+    let staged = tempfile::NamedTempFile::new_in(parent)?.into_temp_path();
+    fs::copy(new, &staged)?;
+    #[cfg(not(windows))]
+    staged.persist(exe)?;
+    #[cfg(windows)]
+    {
+        // The mapped image can be renamed but may not be deletable until exit.
+        let backup = exe.with_added_extension("mihari-update-backup");
+        match fs::remove_file(&backup) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).context("removing the previous update backup"),
+        }
+        fs::rename(exe, &backup).context("backing up the running executable")?;
+        if let Err(error) = staged.persist(exe) {
+            fs::rename(&backup, exe).with_context(|| {
+                format!("install failed ({error}); restoring {}", backup.display())
+            })?;
+            return Err(error).context("installing the staged executable");
+        }
+    }
+    Ok(())
+}
+
+fn is_cargo_profile(directory: &Path) -> bool {
+    // Newer Cargo versions retain an artifact lock even with a separate build-dir.
+    directory.join(".cargo-artifact-lock").is_file()
+        || (directory.join(".fingerprint").is_dir() && directory.join("deps").is_dir())
 }
 
 fn is_cargo_build_output(exe: &Path) -> bool {
     exe.ancestors().skip(1).any(|directory| {
-        directory.file_name().is_some_and(|name| {
-            name.eq_ignore_ascii_case("debug") || name.eq_ignore_ascii_case("release")
-        }) && directory.ancestors().skip(1).take(2).any(|parent| {
-            parent
-                .file_name()
-                .is_some_and(|name| name.eq_ignore_ascii_case("target"))
-        })
+        is_cargo_profile(directory)
+            || directory.file_name().is_some_and(|name| {
+                name.eq_ignore_ascii_case("debug") || name.eq_ignore_ascii_case("release")
+            }) && directory.ancestors().skip(1).take(2).any(|parent| {
+                parent
+                    .file_name()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("target"))
+            })
     })
 }
 
@@ -123,7 +322,7 @@ fn pause_in_private_console() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Path, is_cargo_build_output};
+    use super::{Path, is_cargo_build_output, replace_executable};
 
     #[test]
     fn automatic_updates_skip_cargo_build_outputs() {
@@ -144,5 +343,35 @@ mod tests {
         ] {
             assert!(!is_cargo_build_output(Path::new(path)), "{path}");
         }
+    }
+
+    #[test]
+    fn automatic_updates_skip_custom_cargo_target_directories() -> std::io::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let legacy = temp.path().join("build/release");
+        std::fs::create_dir_all(legacy.join(".fingerprint"))?;
+        std::fs::create_dir_all(legacy.join("deps"))?;
+        assert!(is_cargo_build_output(&legacy.join("mihari.exe")));
+
+        let split = temp.path().join("build/x86_64-pc-windows-msvc/release");
+        std::fs::create_dir_all(&split)?;
+        std::fs::File::create(split.join(".cargo-artifact-lock"))?;
+        assert!(is_cargo_build_output(&split.join("mihari.exe")));
+        assert!(!is_cargo_build_output(
+            &temp.path().join("release/mihari.exe")
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn staged_update_replaces_the_executable_at_its_original_path() -> anyhow::Result<()> {
+        let temp = tempfile::tempdir()?;
+        let exe = temp.path().join("mihari.exe");
+        let staged = temp.path().join("new.exe");
+        std::fs::write(&exe, b"old binary")?;
+        std::fs::write(&staged, b"new binary")?;
+        replace_executable(&exe, &staged)?;
+        assert_eq!(std::fs::read(exe)?, b"new binary");
+        Ok(())
     }
 }

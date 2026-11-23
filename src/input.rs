@@ -44,7 +44,7 @@ impl Action {
         })
     }
 
-    pub(crate) fn from_event(event: &Event) -> Option<Self> {
+    pub(crate) fn from_event(event: &Event) -> Option<(Self, bool)> {
         let Event::Key {
             key,
             pressed: true,
@@ -84,6 +84,6 @@ impl Action {
         if *repeat && !matches!(action, Self::Next | Self::Previous) {
             return None;
         }
-        Some(action)
+        Some((action, *repeat))
     }
 }

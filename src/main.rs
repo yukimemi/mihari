@@ -73,12 +73,19 @@ fn main() -> Result<ExitCode> {
             .with_min_inner_size([320., 240.]),
         ..Default::default()
     };
-    eframe::run_native(
+    let automatic_update = config
+        .auto_update
+        .then(update::start_automatic_update)
+        .flatten();
+    let viewer_result = eframe::run_native(
         "Mihari",
         options,
         Box::new(move |cc| Ok(Box::new(Viewer::new(cc.egui_ctx.clone(), album, config)?))),
-    )
-    .map_err(|error| anyhow!("starting Mihari: {error}"))?;
+    );
+    if let Some(update) = automatic_update {
+        update.stop();
+    }
+    viewer_result.map_err(|error| anyhow!("starting Mihari: {error}"))?;
     Ok(ExitCode::SUCCESS)
 }
 

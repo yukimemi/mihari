@@ -41,7 +41,13 @@ Moves and undos never overwrite existing files. You can undo multiple moves unti
 
 ## Updates
 
-Mihari checks for updates only when you ask. On Windows, run these commands in PowerShell so you can see the result:
+By default, opening the viewer checks for updates in the background. After a successful check, Mihari waits 24 hours before checking again. If a newer release has a matching prebuilt binary, Mihari installs it without prompting. The viewer stays open and uses the new version on the next launch. Set `auto_update = false` in your configuration to disable this behavior.
+
+Closing the viewer cancels pending update requests without starting the 24-hour wait. If executable replacement has already started, the process waits for it to finish or roll back. Startup checks use `GH_TOKEN` or `GITHUB_TOKEN` when set and otherwise check anonymously; they do not launch `gh`.
+
+Automatic updates use GitHub release archives for both Cargo and direct installs and never rebuild from source. On Linux, Mihari keeps the current executable if the downloaded binary cannot run on the host. Automatic updates skip Cargo build outputs, including explicit-target builds and custom `--target-dir` directories with Cargo's build metadata.
+
+To check or update on demand, run these commands. On Windows, use PowerShell so you can see the result:
 
 ```powershell
 mihari --check-update
@@ -50,7 +56,7 @@ mihari --self-update
 
 `--check-update` compares the running version with the latest GitHub release without changing the installation. `--self-update` asks before installing a newer version. For unattended updates, use `mihari --self-update --yes`. Do not combine the update flags with each other or with image paths, `--config`, `--recurse`, or `--no-recurse`.
 
-- **Cargo installs:** Mihari detects executables in the default `~/.cargo/bin` or in `$CARGO_HOME/bin`. Keep `cargo` on `PATH`. The updater builds the matching crates.io version with `cargo install` and replaces the running executable.
+- **Cargo installs:** Mihari detects executables in the default `~/.cargo/bin` or in `$CARGO_HOME/bin`. For a manual `--self-update`, keep `cargo` on `PATH`: the updater builds the matching crates.io version with `cargo install` and replaces the running executable.
 - **Direct installs:** The latest GitHub release must have an archive for your platform named `mihari-<target>.zip` on Windows or `mihari-<target>.tar.gz` on macOS and Linux. The archive contains `mihari.exe` or `mihari`, respectively. The updater replaces the running executable, so you need write access to its directory.
 - **Development builds:** If a newer version is available, self-update refuses to replace binaries under `target/debug` or `target/release`. `--check-update` still works.
 
@@ -69,6 +75,7 @@ cover = true                    # Show the first page by itself in spread mode
 preload = 4                    # Pages ahead (0–8); when enabled, also keeps up to two behind
 slideshow_seconds = 5
 slideshow_always_on_top = true
+auto_update = true              # Set to false to skip automatic updates
 
 [vars]
 sorted = '{{ home() }}/Pictures/Mihari'

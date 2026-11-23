@@ -19,13 +19,18 @@ jxl-oxide = { version = "0.12.6", features = ["image"] }
 kaishin = "0.7.5"
 natord = "1.0.9"
 renamore = "0.3.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
+self_update = { version = "0.44", default-features = false, features = ["archive-tar", "archive-zip", "compression-flate2", "compression-zip-deflate"] }
 serde = { version = "1.0.229", features = ["derive"] }
 tempfile = "3.27"
 teravars = { version = "0.2.2", features = ["merge"] }
-tokio = { version = "1.54.1", features = ["rt"] }
+tokio = { version = "1.54.1", features = ["macros", "rt", "sync"] }
 toml = "1.2.1"
 zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tokio = { version = "1.54.1", features = ["process", "time"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_Console"] }

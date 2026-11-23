@@ -52,6 +52,7 @@ mihari --self-update
 
 - **Cargo installs:** Mihari detects executables in the default `~/.cargo/bin` or in `$CARGO_HOME/bin`. Keep `cargo` on `PATH`. The updater builds the matching crates.io version with `cargo install` and replaces the running executable.
 - **Direct installs:** The latest GitHub release must have an archive for your platform named `mihari-<target>.zip` on Windows or `mihari-<target>.tar.gz` on macOS and Linux. The archive contains `mihari.exe` or `mihari`, respectively. The updater replaces the running executable, so you need write access to its directory.
+- **Development builds:** If a newer version is available, self-update refuses to replace binaries under `target/debug` or `target/release`. `--check-update` still works.
 
 Both commands query GitHub Releases. Network errors or GitHub API rate limits can make either command fail. GitHub and crates.io publish separately, so a check can report a newer release before the matching Cargo package is available. If the Cargo update fails for that reason, retry after the package appears on crates.io.
 

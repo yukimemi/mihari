@@ -25,6 +25,11 @@ struct Slideshow {
     on_top: bool,
 }
 
+struct NextArchivePrompt {
+    path: PathBuf,
+    shown_at: Option<u64>,
+}
+
 pub(crate) struct Viewer {
     album: Album,
     loader: Loader,
@@ -36,7 +41,7 @@ pub(crate) struct Viewer {
     slideshow: Option<Slideshow>,
     g_pending: bool,
     help: bool,
-    next_archive: Option<PathBuf>,
+    next_archive: Option<NextArchivePrompt>,
     sort_help: String,
     notice: Option<String>,
     status: String,
@@ -158,10 +163,26 @@ impl Viewer {
     }
 
     fn show_next_archive_prompt(&mut self, ctx: &Context) {
-        let Some(path) = &self.next_archive else {
+        let Some(prompt) = &mut self.next_archive else {
             return;
         };
-        let name = path.file_name().unwrap_or(path.as_os_str());
+        let frame = ctx.cumulative_frame_nr();
+        let ready = *prompt.shown_at.get_or_insert(frame) != frame;
+        ctx.input_mut(|input| {
+            // egui also uses these key presses to activate focused buttons.
+            input.events.retain(|event| {
+                !matches!(
+                    event,
+                    egui::Event::Key {
+                        key: egui::Key::Enter | egui::Key::Space,
+                        pressed: true,
+                        repeat,
+                        ..
+                    } if !ready || *repeat
+                )
+            });
+        });
+        let name = prompt.path.file_name().unwrap_or(prompt.path.as_os_str());
         let modal = egui::Modal::new(egui::Id::new("next_archive")).show(ctx, |ui| {
             ui.set_max_width(320.);
             ui.heading("End of archive");
@@ -173,22 +194,23 @@ impl Viewer {
                 if cancel.clicked() {
                     ui.close();
                 }
-                open.clicked()
-                    || (!open.has_focus()
-                        && !cancel.has_focus()
-                        && ui.input_mut(|input| {
-                            input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
-                        }))
+                ready
+                    && (open.clicked()
+                        || (!open.has_focus()
+                            && !cancel.has_focus()
+                            && ui.input_mut(|input| {
+                                input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                            })))
             })
             .inner
         });
         if modal.should_close() {
             self.next_archive = None;
         } else if modal.inner
-            && let Some(path) = self.next_archive.take()
+            && let Some(prompt) = self.next_archive.take()
         {
             self.stop_slideshow(ctx);
-            if let Err(error) = self.open_path(&path) {
+            if let Err(error) = self.open_path(&prompt.path) {
                 self.notice = Some(format!("Open failed: {error}"));
             }
             self.refresh_status(ctx);
@@ -233,7 +255,12 @@ impl Viewer {
             }
             Action::Next if !repeat => {
                 match self.album.next_archive() {
-                    Ok(path) => self.next_archive = path,
+                    Ok(path) => {
+                        self.next_archive = path.map(|path| NextArchivePrompt {
+                            path,
+                            shown_at: None,
+                        });
+                    }
                     Err(error) => {
                         self.notice = Some(format!("Finding next archive failed: {error}"))
                     }

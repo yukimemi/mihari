@@ -151,16 +151,29 @@ async fn automatic_update(closing: &watch::Receiver<bool>) -> Result<()> {
         .error_for_status()?
         .json()
         .await?;
-    kaishin::save_check_state(
-        &state_path,
-        &UpdateCheckState {
-            last_checked_unix: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)?
-                .as_secs(),
-            last_known_latest: Some(latest.tag_name.clone()),
-            last_known_url: Some(latest.html_url),
-        },
-    )?;
+    let result = install_available(&exe, &latest, &client, token.as_deref(), closing).await;
+    if !*closing.borrow() {
+        kaishin::save_check_state(
+            &state_path,
+            &UpdateCheckState {
+                last_checked_unix: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)?
+                    .as_secs(),
+                last_known_latest: Some(latest.tag_name),
+                last_known_url: Some(latest.html_url),
+            },
+        )?;
+    }
+    result
+}
+
+async fn install_available(
+    exe: &Path,
+    latest: &Release,
+    client: &reqwest::Client,
+    token: Option<&str>,
+    closing: &watch::Receiver<bool>,
+) -> Result<()> {
     if !kaishin::is_update_available(env!("CARGO_PKG_VERSION"), &latest.tag_name)? {
         return Ok(());
     }
@@ -183,10 +196,7 @@ async fn automatic_update(closing: &watch::Receiver<bool>) -> Result<()> {
         .get(&asset.url)
         .header(reqwest::header::ACCEPT, "application/octet-stream")
         .timeout(Duration::from_secs(120));
-    let mut download = authorize(request, token.as_deref())
-        .send()
-        .await?
-        .error_for_status()?;
+    let mut download = authorize(request, token).send().await?.error_for_status()?;
     let work = tempfile::tempdir()?;
     let archive = work.path().join(&asset.name);
     {
@@ -202,11 +212,33 @@ async fn automatic_update(closing: &watch::Receiver<bool>) -> Result<()> {
         binary = format!("mihari-{target}{suffix}");
         extract.extract_file(work.path(), &binary)?;
     }
+    let binary = work.path().join(binary);
+    #[cfg(target_os = "linux")]
+    verify_linux_binary(&binary).await?;
 
     // From here through replacement or rollback there is no cancellation point.
     if !*closing.borrow() {
-        replace_executable(&exe, &work.path().join(binary))?;
+        replace_executable(exe, &binary)?;
     }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+async fn verify_linux_binary(binary: &Path) -> Result<()> {
+    let mut command = tokio::process::Command::new(binary);
+    command
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(Duration::from_secs(5), command.output())
+        .await
+        .context("timed out checking whether the downloaded binary runs")?
+        .context("could not run the downloaded binary")?;
+    anyhow::ensure!(
+        output.status.success(),
+        "downloaded binary does not run on this system: {}",
+        String::from_utf8_lossy(&output.stderr).trim(),
+    );
     Ok(())
 }
 
@@ -372,6 +404,20 @@ mod tests {
         std::fs::write(&staged, b"new binary")?;
         replace_executable(&exe, &staged)?;
         assert_eq!(std::fs::read(exe)?, b"new binary");
+        Ok(())
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_probe_rejects_a_binary_that_fails_to_start() -> anyhow::Result<()> {
+        let runtime = super::runtime()?;
+        runtime.block_on(super::verify_linux_binary(Path::new("/bin/true")))?;
+        assert!(
+            runtime
+                .block_on(super::verify_linux_binary(Path::new("/bin/false")))
+                .is_err(),
+            "an unsuccessful startup must prevent installation"
+        );
         Ok(())
     }
 }

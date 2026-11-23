@@ -1,7 +1,7 @@
-use std::process::ExitCode;
+use std::{path::Path, process::ExitCode, thread::JoinHandle};
 
 use anyhow::{Context, Result};
-use kaishin::{Checker, InstallMethod, KaishinOptions, UpdateOptions};
+use kaishin::{Checker, KaishinOptions, UpdateOptions};
 
 pub(super) enum Update {
     Check,
@@ -53,27 +53,42 @@ impl Update {
     }
 }
 
-pub(super) fn start_automatic_update() {
-    if let Err(error) = std::thread::Builder::new()
+pub(super) fn start_automatic_update() -> Option<JoinHandle<()>> {
+    match std::thread::Builder::new()
         .name("mihari-update".into())
         .spawn(|| {
             if let Err(error) = automatic_update() {
                 eprintln!("Mihari automatic update failed: {error:#}");
             }
-        })
-    {
-        eprintln!("Mihari could not start automatic updates: {error}");
+        }) {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            eprintln!("Mihari could not start automatic updates: {error}");
+            None
+        }
     }
 }
 
 fn automatic_update() -> Result<()> {
     let exe = std::env::current_exe().context("locating the running executable")?;
-    if kaishin::detect_install_method(&exe) == InstallMethod::DevBuild || dirs::data_dir().is_none() {
+    if is_cargo_build_output(&exe) || dirs::data_dir().is_none() {
         return Ok(());
     }
     let checker = Checker::new(env!("CARGO_PKG_NAME"), options());
     runtime()?.block_on(checker.auto_update())?;
     Ok(())
+}
+
+fn is_cargo_build_output(exe: &Path) -> bool {
+    exe.ancestors().skip(1).any(|directory| {
+        directory.file_name().is_some_and(|name| {
+            name.eq_ignore_ascii_case("debug") || name.eq_ignore_ascii_case("release")
+        }) && directory.ancestors().skip(1).take(2).any(|parent| {
+            parent
+                .file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("target"))
+        })
+    })
 }
 
 fn options() -> KaishinOptions {
@@ -103,5 +118,31 @@ fn pause_in_private_console() {
         eprint!("Press Enter to close...");
         let _ = io::stderr().flush();
         let _ = io::stdin().read_line(&mut String::new());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Path, is_cargo_build_output};
+
+    #[test]
+    fn automatic_updates_skip_cargo_build_outputs() {
+        for path in [
+            "project/target/debug/mihari",
+            "project/target/release/mihari",
+            "project/target/aarch64-apple-darwin/release/mihari",
+            "project/Target/x86_64-pc-windows-msvc/Release/mihari.exe",
+            "project/target/x86_64-pc-windows-msvc/debug/deps/mihari.exe",
+        ] {
+            assert!(is_cargo_build_output(Path::new(path)), "{path}");
+        }
+
+        for path in [
+            "home/.cargo/bin/mihari",
+            "downloads/mihari-x86_64-pc-windows-msvc/mihari.exe",
+            "project/not-target/x86_64-pc-windows-msvc/release/mihari.exe",
+        ] {
+            assert!(!is_cargo_build_output(Path::new(path)), "{path}");
+        }
     }
 }

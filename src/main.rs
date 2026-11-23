@@ -73,15 +73,22 @@ fn main() -> Result<ExitCode> {
             .with_min_inner_size([320., 240.]),
         ..Default::default()
     };
-    if config.auto_update {
-        update::start_automatic_update();
-    }
-    eframe::run_native(
+    let automatic_update = config
+        .auto_update
+        .then(update::start_automatic_update)
+        .flatten();
+    let viewer_result = eframe::run_native(
         "Mihari",
         options,
         Box::new(move |cc| Ok(Box::new(Viewer::new(cc.egui_ctx.clone(), album, config)?))),
-    )
-    .map_err(|error| anyhow!("starting Mihari: {error}"))?;
+    );
+    // Closing the window must not interrupt an executable replacement or rollback.
+    if let Some(worker) = automatic_update
+        && worker.join().is_err()
+    {
+        eprintln!("Mihari automatic update worker panicked");
+    }
+    viewer_result.map_err(|error| anyhow!("starting Mihari: {error}"))?;
     Ok(ExitCode::SUCCESS)
 }
 

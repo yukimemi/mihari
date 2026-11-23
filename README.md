@@ -43,7 +43,9 @@ Moves and undos never overwrite existing files. You can undo multiple moves unti
 
 By default, opening the viewer checks for updates in the background. After a successful check, Mihari waits 24 hours before checking again. If a newer release has a matching prebuilt binary, Mihari installs it without prompting. The viewer stays open and uses the new version on the next launch. Set `auto_update = false` in your configuration to disable this behavior.
 
-Automatic updates use GitHub release archives for both Cargo and direct installs, never rebuild from source, and skip development binaries under `target/debug` or `target/release`.
+Closing the viewer does not interrupt an in-progress automatic update: the window closes first, and the process waits for the update worker to finish.
+
+Automatic updates use GitHub release archives for both Cargo and direct installs and never rebuild from source. They skip Cargo build outputs under `target/debug`, `target/release`, and `target/<target-triple>/{debug,release}`.
 
 To check or update on demand, run these commands. On Windows, use PowerShell so you can see the result:
 

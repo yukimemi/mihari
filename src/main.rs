@@ -3,17 +3,23 @@ mod app;
 mod config;
 mod input;
 mod loader;
+mod update;
 
-use std::path::PathBuf;
+use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::{Context, Result, anyhow};
-use clap::Parser;
+use clap::{ArgGroup, Parser};
 use eframe::egui;
 
-use crate::{album::Album, app::Viewer, config::Config};
+use crate::{album::Album, app::Viewer, config::Config, update::Update};
 
 #[derive(Parser)]
-#[command(version, about)]
+#[command(
+    version,
+    about,
+    group(ArgGroup::new("viewer").args(["path", "config", "recurse", "no_recurse"]).multiple(true)),
+    group(ArgGroup::new("update").args(["check_update", "self_update"]).conflicts_with("viewer"))
+)]
 struct Args {
     /// Image, directory, or ZIP/CBZ archive to open.
     path: Option<PathBuf>,
@@ -26,10 +32,30 @@ struct Args {
     /// Scan only the top level, even if recursion is enabled in the config.
     #[arg(long)]
     no_recurse: bool,
+    /// Check GitHub Releases for a newer version without installing it.
+    #[arg(long)]
+    check_update: bool,
+    /// Update this installation after confirmation.
+    #[arg(long)]
+    self_update: bool,
+    /// Skip confirmation for --self-update.
+    #[arg(long, requires = "self_update", conflicts_with_all = ["check_update", "viewer"])]
+    yes: bool,
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<ExitCode> {
     let args = Args::parse();
+    let update = if args.check_update {
+        Some(Update::Check)
+    } else if args.self_update {
+        Some(Update::Apply { yes: args.yes })
+    } else {
+        None
+    };
+    if let Some(update) = update {
+        return Ok(update.run());
+    }
+
     let mut config = Config::load(args.config.as_deref())?;
     config.recurse = (config.recurse || args.recurse) && !args.no_recurse;
     let album = match args.path {
@@ -52,5 +78,38 @@ fn main() -> Result<()> {
         options,
         Box::new(move |cc| Ok(Box::new(Viewer::new(cc.egui_ctx.clone(), album, config)?))),
     )
-    .map_err(|error| anyhow!("starting Mihari: {error}"))
+    .map_err(|error| anyhow!("starting Mihari: {error}"))?;
+    Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::{Parser, error::ErrorKind};
+
+    use super::Args;
+
+    #[test]
+    fn yes_requires_self_update_even_when_other_modes_are_present() {
+        let Err(error) = Args::try_parse_from(["mihari", "--yes"]) else {
+            panic!("--yes must require --self-update");
+        };
+        assert_eq!(error.kind(), ErrorKind::MissingRequiredArgument);
+
+        for args in [
+            &["--check-update"][..],
+            &["self-update"],
+            &["--config", "config.toml"],
+            &["-r"],
+            &["--no-recurse"],
+        ] {
+            let argv = ["mihari", "--yes"].into_iter().chain(args.iter().copied());
+            let Err(error) = Args::try_parse_from(argv) else {
+                panic!("--yes must conflict with {args:?}");
+            };
+            assert_eq!(error.kind(), ErrorKind::ArgumentConflict, "{args:?}");
+        }
+
+        let args = Args::try_parse_from(["mihari", "--self-update", "--yes"]).unwrap();
+        assert!(args.self_update && args.yes);
+    }
 }

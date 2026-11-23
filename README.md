@@ -39,6 +39,23 @@ In spread mode, `[` and `]` change the page pairing. For example, `]` shifts pag
 
 Moves and undos never overwrite existing files. You can undo multiple moves until you open another album or quit. The slideshow loops and restores the pre-slideshow window level when stopped. Always-on-top is not supported on Wayland.
 
+## Updates
+
+Mihari checks for updates only when you ask. On Windows, run these commands in PowerShell so you can see the result:
+
+```powershell
+mihari --check-update
+mihari --self-update
+```
+
+`--check-update` compares the running version with the latest GitHub release without changing the installation. `--self-update` asks before installing a newer version. For unattended updates, use `mihari --self-update --yes`. Do not combine the update flags with each other or with image paths, `--config`, `--recurse`, or `--no-recurse`.
+
+- **Cargo installs:** Mihari detects executables in the default `~/.cargo/bin` or in `$CARGO_HOME/bin`. Keep `cargo` on `PATH`. The updater builds the matching crates.io version with `cargo install` and replaces the running executable.
+- **Direct installs:** The latest GitHub release must have an archive for your platform named `mihari-<target>.zip` on Windows or `mihari-<target>.tar.gz` on macOS and Linux. The archive contains `mihari.exe` or `mihari`, respectively. The updater replaces the running executable, so you need write access to its directory.
+- **Development builds:** If a newer version is available, self-update refuses to replace binaries under `target/debug` or `target/release`. `--check-update` still works.
+
+Both commands query GitHub Releases. Network errors or GitHub API rate limits can make either command fail. GitHub and crates.io publish separately, so a check can report a newer release before the matching Cargo package is available. If the Cargo update fails for that reason, retry after the package appears on crates.io.
+
 ## Configuration
 
 The default configuration directory is `%APPDATA%\mihari` on Windows, `~/Library/Application Support/mihari` on macOS, and `$XDG_CONFIG_HOME/mihari` on Linux (falling back to `~/.config/mihari`). Mihari loads `config.toml` first, then `config.*.toml` alphabetically, and `config.local.toml` last. Scalars in later files override earlier values; `folders` arrays append. No base file is required. `--config <directory>` searches an alternate directory; `--config <file>` loads only that file and its includes.

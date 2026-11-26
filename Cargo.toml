@@ -27,7 +27,7 @@ tempfile = "3.27"
 teravars = { version = "0.2.2", features = ["merge"] }
 tokio = { version = "1.54.1", features = ["macros", "rt", "sync"] }
 toml = "1.2.2"
-zip = { version = "9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "9.8.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tokio = { version = "1.54.1", features = ["process", "time"] }

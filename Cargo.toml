@@ -24,7 +24,7 @@ rfd = { version = "0.18", default-features = false, features = ["xdg-portal"] }
 self_update = { version = "0.44", default-features = false, features = ["archive-tar", "archive-zip", "compression-flate2", "compression-zip-deflate"] }
 serde = { version = "1.0.229", features = ["derive"] }
 tempfile = "3.27"
-teravars = { version = "0.2.2", features = ["merge"] }
+teravars = { version = "0.3.0", features = ["merge"] }
 tokio = { version = "1.54.1", features = ["macros", "rt", "sync"] }
 toml = "1.2.2"
 zip = { version = "9.8.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }

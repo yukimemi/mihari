@@ -13,7 +13,7 @@ include = ["/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE", "/build.rs", 
 anyhow = "1.0.105"
 clap = { version = "4.6.10", features = ["derive"] }
 dirs = "6"
-eframe = { version = "0.34.3", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"] }
 jxl-oxide = { version = "0.12.6", features = ["image"] }
 kaishin = "0.7.5"
